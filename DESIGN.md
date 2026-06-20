@@ -33,14 +33,6 @@ flowchart TD
     Queue -.->|"BRPOP / RPOPCOUNT"| Workers
     Workers -->|"FlushBatch<br>(Bulk INSERT IGNORE + UPSERT stats)"| MySQL
     Backend -->|"SELECT (PK lookup, <1ms)"| MySQL
-
-    %% Styling
-    style Producers fill:#FFE0E0,stroke:#A00000,stroke-width:1px
-    style Dashboard fill:#E0F0FF,stroke:#0060C0,stroke-width:1px
-    style Backend fill:#E0FFE0,stroke:#008000,stroke-width:1px
-    style Queue fill:#FFF0E0,stroke:#D06000,stroke-width:1px
-    style Workers fill:#F0E0FF,stroke:#6000C0,stroke-width:1px
-    style MySQL fill:#F0F0F0,stroke:#404040,stroke-width:1px
 ```
 
 ---
