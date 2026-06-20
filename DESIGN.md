@@ -6,35 +6,41 @@ MailerCloud is a high-throughput email engagement analytics system. It accepts e
 
 ### System Architecture at a Glance
 
-```
-                                         ┌─────────────────────────┐
-                                         │    Vue 3 Dashboard      │
-                                         │  (polls every 5 sec)    │
-                                         └────────┬────────────────┘
-                                                  │ GET /campaigns/{id}/stats
-                                                  ▼
-┌──────────────┐   POST /events    ┌──────────────────────────┐    SELECT (PK lookup)
-│  Event       │ ────────────────► │       Go Backend         │ ◄────────────────────┐
-│  Producers   │   POST /events/   │   (chi router, slog,     │                      │
-│  (ESP hooks, │    batch          │    middleware stack)      │                      │
-│   loadgen)   │                   └──────┬───────────────────┘                      │
-└──────────────┘                          │                                          │
-                                          │ LPUSH (O(1), <1ms)                       │
-                                          ▼                                          │
-                                   ┌──────────────┐                                  │
-                                   │  Redis List   │                                  │
-                                   │  (in-memory   │                                  │
-                                   │   queue)      │                                  │
-                                   └──────┬───────┘                                  │
-                                          │ BRPOP / RPOPCOUNT                        │
-                                          ▼                                          │
-                                   ┌──────────────────────────┐                      │
-                                   │  Batcher Workers (×8)    │                      │
-                                   │  - BlockingPop (wait)    │    ┌─────────────┐   │
-                                   │  - DrainBatch (fill)     │───►│   MySQL      │───┘
-                                   │  - FlushBatch (write)    │    │  InnoDB      │
-                                   │  - Retry on failure      │    │             │
-                                   └──────────────────────────┘    └─────────────┘
+```mermaid
+flowchart TD
+    subgraph Clients & Producers
+        Producers["Event Producers<br>(ESP Hooks, Load Generator)"]
+        Dashboard["Vue 3 Dashboard<br>(Polls every 5 seconds)"]
+    end
+
+    subgraph Ingestion Layer
+        Backend["Go Backend<br>(Chi Router, slog, Middleware Stack)"]
+        Queue[("Redis List<br>(In-Memory Queue)")]
+    end
+
+    subgraph Processing Layer
+        Workers["Batcher Workers (×8)<br>(BlockingPop + DrainBatch)"]
+    end
+
+    subgraph Storage Layer
+        MySQL[("MySQL InnoDB<br>(Events & Campaign Stats)")]
+    end
+
+    %% Flow lines
+    Producers -->|POST /events<br>POST /events/batch| Backend
+    Dashboard -->|GET /campaigns/{id}/stats| Backend
+    Backend -->|LPUSH (O(1), <1ms)| Queue
+    Queue -.->|BRPOP / RPOPCOUNT| Workers
+    Workers -->|FlushBatch<br>(Bulk INSERT IGNORE + UPSERT stats)| MySQL
+    Backend -->|SELECT (PK lookup, <1ms)| MySQL
+
+    %% Styling
+    style Producers fill:#FFE0E0,stroke:#A00000,stroke-width:1px
+    style Dashboard fill:#E0F0FF,stroke:#0060C0,stroke-width:1px
+    style Backend fill:#E0FFE0,stroke:#008000,stroke-width:1px
+    style Queue fill:#FFF0E0,stroke:#D06000,stroke-width:1px
+    style Workers fill:#F0E0FF,stroke:#6000C0,stroke-width:1px
+    style MySQL fill:#F0F0F0,stroke:#404040,stroke-width:1px
 ```
 
 ---
@@ -299,19 +305,42 @@ Each worker, upon seeing the stop signal, runs `drainAndFlush` — it loops `Dra
 
 ### 3.5 End-to-End Event Flow with Failure Points
 
-```
-Client                   HTTP Handler         Redis           Batcher          MySQL
-  │                          │                  │                │               │
-  │── POST /events ────────► │                  │                │               │
-  │                          │── LPUSH ───────► │                │               │
-  │                          │  (fail? → 500)   │                │               │
-  │ ◄── 202 Accepted ───────│                  │                │               │
-  │                          │                  │── BRPOP ──────►│               │
-  │                          │                  │                │── BEGIN TX ──►│
-  │                          │                  │                │  INSERT IGNORE│
-  │                          │                  │                │  UPSERT stats │
-  │                          │                  │                │── COMMIT ───►│
-  │                          │                  │                │  (fail? retry)│
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant HTTP as HTTP Handler
+    participant Redis as Redis Queue
+    participant Batcher as Batcher Worker
+    participant MySQL as MySQL Database
+
+    Client->>HTTP: POST /events or POST /events/batch
+    activate HTTP
+    HTTP->>Redis: LPUSH event(s)
+    alt LPUSH Fails (e.g., Redis OOM or connection down)
+        HTTP-->>Client: 500 Internal Server Error
+    else LPUSH Succeeds
+        HTTP-->>Client: 202 Accepted
+    end
+    deactivate HTTP
+
+    Note over Batcher, Redis: Asynchronous Processing Loop
+    Batcher->>Redis: BRPOP / RPOPCOUNT (Wait & Drain)
+    activate Redis
+    Redis-->>Batcher: Return batch of events
+    deactivate Redis
+    
+    activate Batcher
+    Batcher->>MySQL: Start Transaction
+    Batcher->>MySQL: INSERT IGNORE into events table
+    Batcher->>MySQL: INSERT ... ON DUPLICATE KEY UPDATE campaign_stats
+    alt Transaction Fails (e.g., MySQL down or deadlock)
+        Batcher->>MySQL: Rollback & retry (up to 3 times with backoff)
+        Note over Batcher: If all retries fail, log error / dead-letter
+    else Transaction Succeeds
+        Batcher->>MySQL: Commit Transaction
+    end
+    deactivate Batcher
 ```
 
 **No silent drop points exist.** Every failure is either propagated to the client (HTTP 500) or retried by the batcher.
