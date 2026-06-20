@@ -1,0 +1,121 @@
+
+services:
+  # ─── Redis (Message Queue) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mailercloud-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+      --save ""
+      --appendonly no
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mailercloud-net
+
+  # ─── MySQL ────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: mailercloud-mysql
+    restart: unless-stopped
+    command: >
+      --innodb-flush-log-at-trx-commit=2
+      --innodb-buffer-pool-size=256M
+      --max-connections=200
+      --innodb-log-file-size=128M
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mailercloud
+      MYSQL_USER: mailercloud
+      MYSQL_PASSWORD: mailercloud
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "mailercloud", "-pmailercloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - mailercloud-net
+
+  # ─── Go Backend ───────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mailercloud-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: mailercloud
+      DB_PASSWORD: mailercloud
+      DB_NAME: mailercloud
+      DB_MAX_OPEN_CONNS: "50"
+      DB_MAX_IDLE_CONNS: "25"
+      REDIS_ADDR: "redis:6379"
+      SERVER_PORT: "8080"
+      BATCH_SIZE: "2000"
+      FLUSH_INTERVAL_MS: "500"
+      NUM_WORKERS: "8"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mailercloud-net
+
+  # ─── Vue 3 Frontend ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mailercloud-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - mailercloud-net
+
+  # ─── Load Generator (run on demand) ──────────────────────────
+  loadgen:
+    build:
+      context: ./loadgen
+      dockerfile: Dockerfile
+    container_name: mailercloud-loadgen
+    environment:
+      BACKEND_URL: http://backend:8080
+      CAMPAIGN_ID: camp-1
+      TOTAL_EVENTS: "20000"
+      CONCURRENCY: "50"
+      BATCH_SIZE: "200"
+    depends_on:
+      - backend
+    profiles:
+      - tools
+    networks:
+      - mailercloud-net
+
+volumes:
+  mysql_data:
+
+networks:
+  mailercloud-net:
+    driver: bridge
