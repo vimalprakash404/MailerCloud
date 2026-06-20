@@ -54,8 +54,8 @@ docker compose --profile tools run --rm \
 ## Environment Configuration
 
 Template configurations are provided for local development and CLI options:
-- **Root config template**: [.env.example](MailerCloud/.env.example) defines backend, database, and Redis variables.
-- **Load generator template**: [loadgen/.env.example](MailerCloud/loadgen/.env.example) contains configurations for campaign traffic simulation parameters.
+- **Root config template**: [.env.example](.env.example) defines backend, database, and Redis variables.
+- **Load generator template**: [loadgen/.env.example](loadgen/.env.example) contains configurations for campaign traffic simulation parameters.
 
 To apply changes locally, copy these templates:
 ```bash
