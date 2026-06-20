@@ -26,6 +26,12 @@ func main() {
 	logger.Init()
 	slog.Info("starting MailerCloud backend")
 
+	// ── Local .env support ───────────────────────────────────────
+	if err := config.LoadDotEnv(); err != nil {
+		slog.Error("failed to load .env file", "error", err)
+		os.Exit(1)
+	}
+
 	// ── Centralized configuration ───────────────────────────────
 	cfg, err := config.Load()
 	if err != nil {

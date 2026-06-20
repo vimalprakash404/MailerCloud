@@ -1,9 +1,12 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -143,4 +146,70 @@ func envInt(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("invalid integer %q for %s", v, key)
 	}
 	return n, nil
+}
+
+// LoadDotEnv loads a .env file from the current directory or a parent directory.
+// It does not overwrite environment variables that are already set.
+func LoadDotEnv() error {
+	path, err := findDotEnv()
+	if err != nil {
+		return nil // no .env file is not an error
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			continue
+		}
+
+		value = strings.Trim(value, "\"'")
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func findDotEnv() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < 4; i++ {
+		path := filepath.Join(dir, ".env")
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", os.ErrNotExist
 }
