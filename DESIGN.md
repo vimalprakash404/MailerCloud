@@ -27,12 +27,12 @@ flowchart TD
     end
 
     %% Flow lines
-    Producers -->|POST /events<br>POST /events/batch| Backend
-    Dashboard -->|GET /campaigns/{id}/stats| Backend
-    Backend -->|LPUSH (O(1), <1ms)| Queue
-    Queue -.->|BRPOP / RPOPCOUNT| Workers
-    Workers -->|FlushBatch<br>(Bulk INSERT IGNORE + UPSERT stats)| MySQL
-    Backend -->|SELECT (PK lookup, <1ms)| MySQL
+    Producers -->|"POST /events<br>POST /events/batch"| Backend
+    Dashboard -->|"GET /campaigns/{id}/stats"| Backend
+    Backend -->|"LPUSH (O(1), <1ms)"| Queue
+    Queue -.->|"BRPOP / RPOPCOUNT"| Workers
+    Workers -->|"FlushBatch<br>(Bulk INSERT IGNORE + UPSERT stats)"| MySQL
+    Backend -->|"SELECT (PK lookup, <1ms)"| MySQL
 
     %% Styling
     style Producers fill:#FFE0E0,stroke:#A00000,stroke-width:1px
