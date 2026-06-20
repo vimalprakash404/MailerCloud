@@ -1,44 +1,82 @@
 /* ═══════════════════════════════════════════════════════════
-   MailerCloud Dashboard — Global Styles
+   MailerCloud Dashboard — Standard Corporate Design System
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Color Palette ──────────────────────────────────────── */
-  --bg-primary: #0b0f1a;
-  --bg-secondary: #111827;
-  --bg-card: #1a1f35;
-  --bg-card-hover: #1f2747;
-  --bg-input: #161c30;
+  /* ── Dark Corporate Palette (Default) ───────────────────── */
+  --bg-primary: #09090b;       /* Zinc 950 */
+  --bg-secondary: #09090b;
+  --bg-card: #18181b;          /* Zinc 900 */
+  --bg-card-hover: #1c1c21;
+  --bg-input: #09090b;
+  --bg-tooltip: #27272a;
 
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: #fafafa;     /* Zinc 50 */
+  --text-secondary: #a1a1aa;   /* Zinc 400 */
+  --text-muted: #71717a;       /* Zinc 500 */
+  --text-tooltip: #f4f4f5;
 
-  --accent-blue: #3b82f6;
-  --accent-blue-glow: rgba(59, 130, 246, 0.3);
-  --accent-emerald: #10b981;
-  --accent-emerald-glow: rgba(16, 185, 129, 0.25);
-  --accent-amber: #f59e0b;
-  --accent-amber-glow: rgba(245, 158, 11, 0.25);
-  --accent-rose: #f43f5e;
-  --accent-rose-glow: rgba(244, 63, 94, 0.25);
-  --accent-violet: #8b5cf6;
-  --accent-violet-glow: rgba(139, 92, 246, 0.25);
+  --border-color: #27272a;     /* Zinc 800 */
+  --border-color-hover: #3f3f46; /* Zinc 700 */
+  --border-glow: rgba(37, 99, 235, 0.15);
 
-  --border-color: rgba(255, 255, 255, 0.06);
-  --border-glow: rgba(59, 130, 246, 0.15);
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --card-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
 
-  /* ── Typography ─────────────────────────────────────────── */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'SF Mono', 'Fira Code', monospace;
+  /* ── Clean Accents ──────────────────────────────────────── */
+  --accent-blue: #2563eb;      /* Blue 600 */
+  --accent-blue-glow: rgba(37, 99, 235, 0.1);
+  --accent-emerald: #10b981;   /* Emerald 500 */
+  --accent-emerald-glow: rgba(16, 185, 129, 0.1);
+  --accent-amber: #d97706;     /* Amber 600 */
+  --accent-amber-glow: rgba(217, 119, 6, 0.1);
+  --accent-rose: #ef4444;      /* Red 500 */
+  --accent-rose-glow: rgba(239, 68, 68, 0.1);
+  --accent-violet: #7c3aed;    /* Violet 600 */
+  --accent-violet-glow: rgba(124, 58, 237, 0.1);
 
-  /* ── Sizing ─────────────────────────────────────────────── */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  /* ── Clean Sizing & Layout ─────────────────────────────── */
+  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
 }
 
+/* ── Light Corporate Palette Override ────────────────────── */
+html.light {
+  --bg-primary: #fafafa;       /* Zinc 50 */
+  --bg-secondary: #f4f4f5;     /* Zinc 100 */
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #ffffff;
+  --bg-tooltip: #18181b;
+
+  --text-primary: #09090b;     /* Zinc 950 */
+  --text-secondary: #52525b;   /* Zinc 600 */
+  --text-muted: #71717a;       /* Zinc 500 */
+  --text-tooltip: #fafafa;
+
+  --border-color: #e4e4e7;     /* Zinc 200 */
+  --border-color-hover: #d4d4d8; /* Zinc 300 */
+  --border-glow: rgba(37, 99, 235, 0.08);
+
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --card-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+
+  --accent-blue-glow: rgba(37, 99, 235, 0.08);
+  --accent-emerald-glow: rgba(16, 185, 129, 0.08);
+  --accent-amber-glow: rgba(217, 119, 6, 0.08);
+  --accent-rose-glow: rgba(239, 68, 68, 0.08);
+  --accent-violet-glow: rgba(124, 58, 237, 0.08);
+}
+
+/* ── Base Styles ─────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -50,38 +88,78 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-family);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
 #app {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 /* ── Utility Classes ──────────────────────────────────────── */
 .glass {
-  background: rgba(26, 31, 53, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  transition: border-color var(--transition-normal), background-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
-.glow-blue { box-shadow: 0 0 30px var(--accent-blue-glow); }
-.glow-emerald { box-shadow: 0 0 30px var(--accent-emerald-glow); }
-.glow-amber { box-shadow: 0 0 30px var(--accent-amber-glow); }
-.glow-rose { box-shadow: 0 0 30px var(--accent-rose-glow); }
+.glass:hover {
+  border-color: var(--border-color-hover);
+  box-shadow: var(--card-shadow-hover);
+}
+
+/* Keep structural names, remove glowing effect */
+.glow-blue { border-left: 3px solid var(--accent-blue); }
+.glow-emerald { border-left: 3px solid var(--accent-emerald); }
+.glow-amber { border-left: 3px solid var(--accent-amber); }
+.glow-rose { border-left: 3px solid var(--accent-rose); }
+.glow-violet { border-left: 3px solid var(--accent-violet); }
 
 /* ── Animations ───────────────────────────────────────────── */
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes pulse-soft {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.65; }
 }
 
 @keyframes shimmer {
@@ -90,12 +168,55 @@ html, body {
 }
 
 .fade-in-up {
-  animation: fadeInUp 0.5s ease-out both;
+  animation: fadeInUp 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease both;
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+  background: linear-gradient(
+    90deg, 
+    var(--bg-card) 25%, 
+    var(--bg-card-hover) 50%, 
+    var(--bg-card) 75%
+  );
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s infinite linear;
   border-radius: var(--radius-sm);
+}
+
+/* Tooltip standard utility */
+.tooltip-trigger {
+  position: relative;
+  cursor: help;
+}
+
+.tooltip-text {
+  visibility: hidden;
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background-color: var(--bg-tooltip);
+  color: var(--text-tooltip);
+  border: 1px solid var(--border-color);
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  width: 200px;
+  opacity: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 50;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+  pointer-events: none;
+  line-height: 1.4;
+}
+
+.tooltip-trigger:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }

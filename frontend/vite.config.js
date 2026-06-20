@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
         '/campaigns': {
           target: apiTarget,
           changeOrigin: true,
+          ws: true,
         },
       },
     },

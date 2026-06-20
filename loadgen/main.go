@@ -1,25 +1,29 @@
-// Load generator CLI — fires configurable bursts using batch POST /events/batch.
-// Uses async event-driven architecture: batches events client-side and sends
-// them in bulk to minimize HTTP round-trip overhead.
+// Load generator CLI — simulates burst email campaign traffic.
+// Scenario: up to 20,000 events/second at peak, in bursts —
+// a single campaign send can fire 2 million sent events in under a minute.
+// No events may be lost.
 //
 // Environment variables:
 //   BACKEND_URL   — target URL (default: http://localhost:8080)
 //   CAMPAIGN_ID   — campaign to send events for (default: camp-1)
-//   TOTAL_EVENTS  — total events to send (default: 10000)
-//   CONCURRENCY   — parallel goroutines (default: 50)
-//   BATCH_SIZE    — events per HTTP request (default: 200)
+//   TOTAL_EVENTS  — total events to send (default: 2000000)
+//   CONCURRENCY   — target events per second / concurrent workers (default: 20000)
 
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,44 +49,65 @@ type BatchResponse struct {
 var eventTypes = []string{"sent", "opened", "clicked", "bounced"}
 
 func main() {
-	backendURL := getEnv("BACKEND_URL", "http://localhost:8080")
+	backendURL := getEnv("BACKEND_URL", "http://127.0.0.1:8080")
 	campaignID := getEnv("CAMPAIGN_ID", "camp-1")
-	totalEvents := envInt("TOTAL_EVENTS", 10000)
-	concurrency := envInt("CONCURRENCY", 50)
-	batchSize := envInt("BATCH_SIZE", 200)
+	totalEvents := envInt("TOTAL_EVENTS", 2000000)
+	concurrency := envInt("CONCURRENCY", 20000)
 
-	log.Printf("╔══════════════════════════════════════════╗")
-	log.Printf("║  MailerCloud Load Generator (Batch)      ║")
-	log.Printf("╠══════════════════════════════════════════╣")
-	log.Printf("║  Target:      %s", backendURL)
-	log.Printf("║  Campaign:    %s", campaignID)
-	log.Printf("║  Events:      %d", totalEvents)
-	log.Printf("║  Concurrency: %d", concurrency)
-	log.Printf("║  Batch Size:  %d", batchSize)
-	log.Printf("║  HTTP Reqs:   ~%d", (totalEvents+batchSize-1)/batchSize)
-	log.Printf("╚══════════════════════════════════════════╝")
+	// Batch size equals concurrency (20,000 events per HTTP request)
+	batchSize := concurrency
 
+	// Calculate number of HTTP requests needed
+	numBatches := (totalEvents + batchSize - 1) / batchSize
+
+	// Use a reasonable number of goroutine workers (not 20K goroutines)
+	// Cap workers at numBatches or 100, whichever is smaller
+	numWorkers := numBatches
+	if numWorkers > 100 {
+		numWorkers = 100
+	}
+
+	log.Printf("╔══════════════════════════════════════════════════════╗")
+	log.Printf("║  MailerCloud Load Generator — Burst Mode            ║")
+	log.Printf("╠══════════════════════════════════════════════════════╣")
+	log.Printf("║  Target:         %s", backendURL)
+	log.Printf("║  Campaign:       %s", campaignID)
+	log.Printf("║  Total Events:   %d", totalEvents)
+	log.Printf("║  Events/Batch:   %d", batchSize)
+	log.Printf("║  HTTP Requests:  %d", numBatches)
+	log.Printf("║  Workers:        %d", numWorkers)
+	log.Printf("╚══════════════════════════════════════════════════════╝")
+
+	// HTTP client with connection pooling tuned for burst traffic
+	maxConns := numWorkers
+	if maxConns > 200 {
+		maxConns = 200
+	}
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        concurrency * 2,
-			MaxIdleConnsPerHost: concurrency * 2,
+			MaxIdleConns:        maxConns * 2,
+			MaxIdleConnsPerHost: maxConns * 2,
+			MaxConnsPerHost:     maxConns,
 			IdleConnTimeout:     90 * time.Second,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
 		},
 	}
 
-	var sent int64
-	var errors int64
+	var totalSent int64
+	var totalErrors int64
 	var wg sync.WaitGroup
 
-	// Build all batches upfront — split totalEvents into chunks of batchSize
-	var batches [][]Event
+	// Build all batches upfront
+	batches := make([][]Event, 0, numBatches)
 	for offset := 0; offset < totalEvents; offset += batchSize {
 		end := offset + batchSize
 		if end > totalEvents {
 			end = totalEvents
 		}
-
 		batch := make([]Event, 0, end-offset)
 		for i := offset; i < end; i++ {
 			batch = append(batch, Event{
@@ -96,20 +121,22 @@ func main() {
 	}
 
 	// Feed batches into a work channel
-	ch := make(chan []Event, len(batches))
-	for _, b := range batches {
-		ch <- b
+	ch := make(chan int, len(batches)) // send batch index
+	for i := range batches {
+		ch <- i
 	}
 	close(ch)
 
 	start := time.Now()
 
-	// Launch workers — each consumes batch work items from the channel
-	for w := 0; w < concurrency; w++ {
+	// Launch workers
+	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for batch := range ch {
+
+			for batchIdx := range ch {
+				batch := batches[batchIdx]
 				batchReq := BatchRequest{Events: batch}
 				body, _ := json.Marshal(batchReq)
 
@@ -118,17 +145,31 @@ func main() {
 				for attempt := 0; attempt < 8; attempt++ {
 					resp, err := client.Post(backendURL+"/events/batch", "application/json", bytes.NewReader(body))
 					if err != nil {
-						time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+						if attempt == 7 {
+							log.Printf("ERROR: batch post failed after 8 attempts: %v", err)
+						}
+						jitter := time.Duration(rand.Intn(100)) * time.Millisecond
+						time.Sleep(time.Duration(attempt+1)*200*time.Millisecond + jitter)
 						continue
 					}
 
 					var result BatchResponse
-					json.NewDecoder(resp.Body).Decode(&result)
+					decodeErr := json.NewDecoder(resp.Body).Decode(&result)
+					io.Copy(io.Discard, resp.Body)
 					resp.Body.Close()
 
+					if decodeErr != nil {
+						if attempt == 7 {
+							log.Printf("ERROR: decode response failed after 8 attempts: %v", decodeErr)
+						}
+						jitter := time.Duration(rand.Intn(100)) * time.Millisecond
+						time.Sleep(time.Duration(attempt+1)*200*time.Millisecond + jitter)
+						continue
+					}
+
 					if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-						atomic.AddInt64(&sent, int64(result.Accepted))
-						atomic.AddInt64(&errors, int64(result.Dropped))
+						atomic.AddInt64(&totalSent, int64(result.Accepted))
+						atomic.AddInt64(&totalErrors, int64(result.Dropped))
 						success = true
 						break
 					}
@@ -139,23 +180,25 @@ func main() {
 						continue
 					}
 					if resp.StatusCode >= 500 {
-						time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+						jitter := time.Duration(rand.Intn(100)) * time.Millisecond
+						time.Sleep(time.Duration(attempt+1)*200*time.Millisecond + jitter)
 						continue
 					}
-					// Non-retryable error
+					// Non-retryable
 					break
 				}
 				if !success {
-					atomic.AddInt64(&errors, int64(len(batch)))
+					atomic.AddInt64(&totalErrors, int64(len(batch)))
 				}
 
-				current := atomic.LoadInt64(&sent) + atomic.LoadInt64(&errors)
-				if current%(int64(batchSize)*5) < int64(batchSize) {
-					elapsed := time.Since(start).Seconds()
-					rate := float64(atomic.LoadInt64(&sent)) / elapsed
-					log.Printf("  Progress: %d/%d events (%.0f accepted/sec)",
-						current, totalEvents, rate)
-				}
+				// Progress: show cumulative events dispatched in multiples of batchSize
+				currentSent := atomic.LoadInt64(&totalSent)
+				currentErrors := atomic.LoadInt64(&totalErrors)
+				dispatched := currentSent + currentErrors
+				elapsed := time.Since(start).Seconds()
+				rate := float64(currentSent) / elapsed
+				log.Printf("  Progress: %d/%d events (%.0f accepted/sec)",
+					dispatched, totalEvents, rate)
 			}
 		}()
 	}
@@ -163,16 +206,16 @@ func main() {
 	wg.Wait()
 	elapsed := time.Since(start)
 
-	log.Printf("╔══════════════════════════════════════════╗")
-	log.Printf("║  Results                                 ║")
-	log.Printf("╠══════════════════════════════════════════╣")
-	log.Printf("║  Sent:     %d", sent)
-	log.Printf("║  Errors:   %d", errors)
+	log.Printf("╔══════════════════════════════════════════════════════╗")
+	log.Printf("║  Results                                            ║")
+	log.Printf("╠══════════════════════════════════════════════════════╣")
+	log.Printf("║  Sent:     %d", totalSent)
+	log.Printf("║  Errors:   %d", totalErrors)
 	log.Printf("║  Duration: %v", elapsed.Round(time.Millisecond))
 	if elapsed.Seconds() > 0 {
-		log.Printf("║  Rate:     %.0f events/sec", float64(sent)/elapsed.Seconds())
+		log.Printf("║  Rate:     %.0f events/sec", float64(totalSent)/elapsed.Seconds())
 	}
-	log.Printf("╚══════════════════════════════════════════╝")
+	log.Printf("╚══════════════════════════════════════════════════════╝")
 }
 
 func getEnv(key, fallback string) string {
@@ -189,4 +232,37 @@ func envInt(key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func init() {
+	loadEnvFile(".env")
+}
+
+func loadEnvFile(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			// Strip quotes
+			if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+				(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+				value = value[1 : len(value)-1]
+			}
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
+		}
+	}
 }

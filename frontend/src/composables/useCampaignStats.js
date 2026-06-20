@@ -1,13 +1,8 @@
 /**
  * Composable: useCampaignStats
  *
- * Extracts polling logic, state management, and computed rates from
- * Dashboard.vue into a reusable composable (Vue 3 Composition API pattern).
- *
- * This enables:
- * - Reuse across different views (e.g., a mini-widget or a detail page)
- * - Unit testing the polling logic without mounting a component
- * - Cleaner Dashboard.vue (~10 lines of script instead of ~100)
+ * Extracts stats tracking, state management, and computed rates.
+ * Now refactored to use WebSockets for real-time campaign stats streaming.
  */
 
 import { ref, computed, onUnmounted } from 'vue'
@@ -15,15 +10,32 @@ import { fetchCampaignStats } from '../api/client.js'
 
 export function useCampaignStats(pollInterval = 5000) {
   // ── Reactive state ──────────────────────────────────────────
-  const campaignId = ref('')
+  const campaignId = ref(localStorage.getItem('mailercloud_last_campaign') || '')
   const activeCampaign = ref('')
   const state = ref('idle')              // idle | loading | ready | empty | error
   const stats = ref({ sent: 0, opened: 0, clicked: 0, bounced: 0 })
   const errorMsg = ref('')
   const lastUpdated = ref(null)
+  
+  // Real-time speed & history
+  const throughputSpeed = ref(0)
 
+  
+  // Bookmarked campaigns
+  const pinnedCampaigns = ref([])
+  try {
+    pinnedCampaigns.value = JSON.parse(localStorage.getItem('mailercloud_pinned') || '[]')
+  } catch (e) {
+    pinnedCampaigns.value = []
+  }
+
+  // Active theme
+  const theme = ref(localStorage.getItem('mailercloud_theme') || 'dark')
+  
   let pollTimer = null
   let abortController = null
+  const prevTotal = ref(0)
+  const prevTime = ref(null)
 
   // ── Derived rates ───────────────────────────────────────────
   const openRate = computed(() =>
@@ -36,14 +48,17 @@ export function useCampaignStats(pollInterval = 5000) {
     stats.value.sent > 0 ? +(stats.value.bounced / stats.value.sent * 100).toFixed(1) : null
   )
 
+
   const isStale = computed(() => {
     if (!lastUpdated.value) return false
     return Date.now() - lastUpdated.value.getTime() > 15000
   })
 
+  // Timer tick for active timing text
+  const now = ref(Date.now())
   const lastUpdatedText = computed(() => {
     if (!lastUpdated.value) return 'Never'
-    const secs = Math.round((Date.now() - lastUpdated.value.getTime()) / 1000)
+    const secs = Math.max(0, Math.round((now.value - lastUpdated.value.getTime()) / 1000))
     if (secs < 5) return 'Just now'
     if (secs < 60) return `${secs}s ago`
     return `${Math.floor(secs / 60)}m ago`
@@ -57,21 +72,107 @@ export function useCampaignStats(pollInterval = 5000) {
   })
 
   const statusText = computed(() => {
-    if (state.value === 'error') return 'Error'
-    if (state.value === 'loading') return 'Loading...'
-    if (activeCampaign.value) return 'Live'
+    if (state.value === 'error') return 'Disconnected'
+    if (state.value === 'loading') return 'Fetching...'
+    if (activeCampaign.value) return 'Active (HTTP)'
     return 'Idle'
   })
 
-  // ── Polling controls ────────────────────────────────────────
+  // ── Campaign Pinning Actions ────────────────────────────────
+  function pinCampaign(id) {
+    if (!id || pinnedCampaigns.value.includes(id)) return
+    pinnedCampaigns.value.push(id)
+    localStorage.setItem('mailercloud_pinned', JSON.stringify(pinnedCampaigns.value))
+  }
+
+  // unpinCampaign
+  function unpinCampaign(id) {
+    pinnedCampaigns.value = pinnedCampaigns.value.filter(c => c !== id)
+    localStorage.setItem('mailercloud_pinned', JSON.stringify(pinnedCampaigns.value))
+  }
+
+  const isPinned = computed(() => {
+    return activeCampaign.value && pinnedCampaigns.value.includes(activeCampaign.value)
+  })
+
+  // ── Theme Toggle Actions ────────────────────────────────────
+  function toggleTheme() {
+    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+    localStorage.setItem('mailercloud_theme', theme.value)
+    applyTheme()
+  }
+
+  function applyTheme() {
+    if (theme.value === 'light') {
+      document.documentElement.classList.add('light')
+    } else {
+      document.documentElement.classList.remove('light')
+    }
+  }
+
+  // Initial theme application
+  applyTheme()
+
+  // ── HTTP Polling Connection Lifecycle ──────────────────────
+  async function fetchStatsHTTP() {
+    if (!activeCampaign.value) return
+
+    if (abortController) {
+      abortController.abort()
+    }
+    abortController = new AbortController()
+
+    try {
+      const data = await fetchCampaignStats(activeCampaign.value, abortController.signal)
+      stats.value = data
+      const currentTime = Date.now()
+      lastUpdated.value = new Date(currentTime)
+
+      // Calculate event throughput speed
+      const currentTotal = data.sent + data.opened + data.clicked + data.bounced
+      if (prevTime.value && prevTotal.value > 0 && currentTime > prevTime.value) {
+        const elapsedSecs = (currentTime - prevTime.value) / 1000
+        const diff = Math.max(0, currentTotal - prevTotal.value)
+        throughputSpeed.value = Math.round(diff / elapsedSecs)
+      } else {
+        throughputSpeed.value = 0
+      }
+
+      prevTotal.value = currentTotal
+      prevTime.value = currentTime
+
+      const total = data.sent + data.opened + data.clicked + data.bounced
+      state.value = total === 0 ? 'empty' : 'ready'
+      errorMsg.value = ''
+
+
+    } catch (err) {
+      if (err.name === 'AbortError') return
+      state.value = 'error'
+      errorMsg.value = err.message || 'Failed to fetch campaign stats'
+      throughputSpeed.value = 0
+    }
+  }
+
   function startPolling() {
     if (!campaignId.value) return
 
     stopPolling()
     activeCampaign.value = campaignId.value
+    localStorage.setItem('mailercloud_last_campaign', campaignId.value)
+    
+    // Clear metrics for new campaign
+    throughputSpeed.value = 0
+    prevTotal.value = 0
+    prevTime.value = null
+    
     state.value = 'loading'
-    fetchStats()
-    pollTimer = setInterval(fetchStats, pollInterval)
+    
+    fetchStatsHTTP().then(() => {
+      if (activeCampaign.value) {
+        pollTimer = setInterval(fetchStatsHTTP, pollInterval)
+      }
+    })
   }
 
   function stopPolling() {
@@ -83,33 +184,25 @@ export function useCampaignStats(pollInterval = 5000) {
       abortController.abort()
       abortController = null
     }
+    activeCampaign.value = ''
+    state.value = 'idle'
+    throughputSpeed.value = 0
   }
 
-  async function fetchStats() {
-    // Cancel any in-flight request (see DESIGN.md §6)
-    if (abortController) abortController.abort()
-    abortController = new AbortController()
-
-    try {
-      const data = await fetchCampaignStats(activeCampaign.value, abortController.signal)
-      stats.value = data
-      lastUpdated.value = new Date()
-
-      const total = data.sent + data.opened + data.clicked + data.bounced
-      state.value = total === 0 ? 'empty' : 'ready'
-      errorMsg.value = ''
-    } catch (err) {
-      if (err.name === 'AbortError') return // intentional cancel
-      state.value = 'error'
-      errorMsg.value = err.message || 'Network error'
-    }
+  // fetchStats for retry action
+  function fetchStats() {
+    state.value = 'loading'
+    fetchStatsHTTP().then(() => {
+      if (activeCampaign.value && !pollTimer) {
+        pollTimer = setInterval(fetchStatsHTTP, pollInterval)
+      }
+    })
   }
 
   // ── Cleanup on unmount ──────────────────────────────────────
   onUnmounted(stopPolling)
 
-  // Tick timer to keep "last updated" text fresh
-  const tickTimer = setInterval(() => { lastUpdated.value = lastUpdated.value }, 1000)
+  const tickTimer = setInterval(() => { now.value = Date.now() }, 1000)
   onUnmounted(() => clearInterval(tickTimer))
 
   // ── Public API ──────────────────────────────────────────────
@@ -121,19 +214,27 @@ export function useCampaignStats(pollInterval = 5000) {
     stats,
     errorMsg,
     lastUpdated,
+    throughputSpeed,
+    pinnedCampaigns,
+    theme,
 
     // Computed
     openRate,
     clickRate,
     bounceRate,
+
     isStale,
     lastUpdatedText,
     statusClass,
     statusText,
+    isPinned,
 
     // Actions
     startPolling,
     stopPolling,
     fetchStats,
+    pinCampaign,
+    unpinCampaign,
+    toggleTheme,
   }
 }

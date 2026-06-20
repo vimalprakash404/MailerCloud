@@ -90,6 +90,7 @@ func main() {
 	r.Post("/events", eventsHandler.ServeHTTP)
 	r.Post("/events/batch", eventsHandler.ServeBatchHTTP)
 	r.Get("/campaigns/{id}/stats", statsHandler.ServeHTTP)
+	r.Get("/campaigns/{id}/stats/ws", statsHandler.ServeWSHTTP)
 
 	// ── HTTP Server ─────────────────────────────────────────────
 	srv := &http.Server{

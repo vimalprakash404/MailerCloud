@@ -101,7 +101,7 @@ async function postBatch(events) {
  * @param {function} onProgress - callback(sent, total)
  * @returns {Promise<{sent: number, errors: number, durationMs: number}>}
  */
-export async function fireBurst(campaignId, count, concurrency, onProgress) {
+export async function fireBurst(campaignId, count, concurrency, onProgress, ratios) {
   const eventTypes = ['sent', 'opened', 'clicked', 'bounced'];
   const start = performance.now();
   let totalSent = 0;
@@ -109,13 +109,51 @@ export async function fireBurst(campaignId, count, concurrency, onProgress) {
 
   // ── 1. Build all events upfront ─────────────────────────────
   const allEvents = [];
-  for (let i = 0; i < count; i++) {
-    allEvents.push({
-      event_id: `load-${campaignId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
-      campaign_id: campaignId,
-      type: eventTypes[i % eventTypes.length],
-      timestamp: new Date().toISOString(),
+
+  if (ratios) {
+    const totalRatio = Object.values(ratios).reduce((a, b) => a + b, 0) || 1;
+    const normalized = {
+      sent: (ratios.sent || 0) / totalRatio,
+      opened: (ratios.opened || 0) / totalRatio,
+      clicked: (ratios.clicked || 0) / totalRatio,
+      bounced: (ratios.bounced || 0) / totalRatio,
+    };
+
+    const typesToGenerate = [];
+    let generatedCount = 0;
+
+    eventTypes.forEach((type, idx) => {
+      const isLast = idx === eventTypes.length - 1;
+      const typeCount = isLast ? (count - generatedCount) : Math.round(normalized[type] * count);
+      generatedCount += typeCount;
+      for (let j = 0; j < typeCount; j++) {
+        typesToGenerate.push(type);
+      }
     });
+
+    // Fisher-Yates shuffle
+    for (let i = typesToGenerate.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [typesToGenerate[i], typesToGenerate[j]] = [typesToGenerate[j], typesToGenerate[i]];
+    }
+
+    for (let i = 0; i < count; i++) {
+      allEvents.push({
+        event_id: `load-${campaignId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        campaign_id: campaignId,
+        type: typesToGenerate[i] || 'sent',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } else {
+    for (let i = 0; i < count; i++) {
+      allEvents.push({
+        event_id: `load-${campaignId}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        campaign_id: campaignId,
+        type: eventTypes[i % eventTypes.length],
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   // ── 2. Split into batches and create a shared work queue ────
@@ -189,3 +227,5 @@ export async function fireBurst(campaignId, count, concurrency, onProgress) {
     durationMs: Math.round(performance.now() - start),
   };
 }
+
+
