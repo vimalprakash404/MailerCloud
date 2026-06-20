@@ -48,6 +48,24 @@ docker compose --profile tools run --rm \
   loadgen
 ```
 
+
+---
+
+## Environment Configuration
+
+Template configurations are provided for local development and CLI options:
+- **Root config template**: [.env.example](MailerCloud/.env.example) defines backend, database, and Redis variables.
+- **Load generator template**: [loadgen/.env.example](MailerCloud/loadgen/.env.example) contains configurations for campaign traffic simulation parameters.
+
+To apply changes locally, copy these templates:
+```bash
+# Copy the backend/database configuration
+cp .env.example .env
+
+# Copy the load generator configuration
+cp loadgen/.env.example loadgen/.env
+```
+
 ---
 
 ## Local Development Setup
@@ -192,6 +210,7 @@ MailerCloud/
 ├── docker-compose.yml
 ├── DESIGN.md              # Architecture & scaling decisions
 ├── README.md              # This file
+├── .env.example           # Centralized backend & database env templates
 ├── backend/
 │   ├── Dockerfile
 │   ├── main.go            # Entry point + HTTP server
@@ -218,6 +237,7 @@ MailerCloud/
 │           └── LoadGenerator.vue
 ├── loadgen/
 │   ├── Dockerfile
+│   ├── .env.example       # Load generator configuration template
 │   └── main.go            # CLI burst fire tool
 └── db/
     └── migrations/
